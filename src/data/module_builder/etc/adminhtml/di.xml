@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <type name="%namespace%\Ui\DataProvider\%model%\Form\DataProvider">
+        <arguments>
+            <argument name="pool" xsi:type="object">%namespace%\Ui\DataProvider\%model%\Form\ModifierPool</argument>
+        </arguments>
+    </type>
+    <virtualType name="%namespace%\Ui\DataProvider\%model%\Form\ModifierPool" type="Magento\Ui\DataProvider\Modifier\Pool">
+         <arguments>
+             <argument name="modifiers" xsi:type="array">
+                 <item name="image" xsi:type="array">
+                     <item name="class" xsi:type="string">%namespace%\Ui\DataProvider\%model%\Form\Modifier\ImageModifier</item>
+                     <item name="sortOrder" xsi:type="number">10</item>
+                 </item>
+             </argument>
+         </arguments>
+    </virtualType>
+    <!--
+    /**
+     * Add collection/grid as product tab in Admin
+     */
+    -->
+    <virtualType name="Magento\Catalog\Ui\DataProvider\Product\Form\Modifier\Pool">
+        <arguments>
+            <argument name="modifiers" xsi:type="array">
+                <item name="%model.strtolower%Listing" xsi:type="array">
+                    <item name="class" xsi:type="string">%namespace%\Ui\DataProvider\Catalog\Product\Form\Modifier\%model%Listing</item>
+                    <item name="sortOrder" xsi:type="number">20</item>
+                </item>
+            </argument>
+        </arguments>
+    </virtualType>
+</config>

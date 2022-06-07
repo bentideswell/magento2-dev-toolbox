@@ -1,0 +1,153 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+define('OPT_SOURCE_INSTALL', 'source');
+define('OPT_TARGET_PROJECT', 'project');
+define('OPT_VERSION_BUMP', 'bump');
+
+try {
+    # Find Magento install
+    $magentoPath = dirname(dirname(dirname(dirname(dirname(__DIR__)))));
+    if (!is_dir($magentoPath) || !is_file($magentoPath . '/app/bootstrap.php')) {
+        throw new \Exception('Unable to find Magento 2 installation at ' . $magentoPath);
+    }
+
+    chdir($magentoPath);
+    require 'app/bootstrap.php';
+    \Magento\Framework\App\Bootstrap::create(BP, $_SERVER);
+
+    $args = array_merge(
+        [
+            OPT_SOURCE_INSTALL => '',
+            OPT_TARGET_PROJECT => '',
+            OPT_VERSION_BUMP => false
+        ],
+        __process_args($_SERVER['argv'])
+    );
+    
+    
+    echo PHP_EOL . "Building with these arguments:" . PHP_EOL . print_r($args, true);
+
+    // Validate project directory
+    if (!$args[OPT_TARGET_PROJECT] || !($targetProjectDir = realpath($args[OPT_TARGET_PROJECT])) || !is_file($targetProjectDir . '/composer.json')) {
+        throw new \InvalidArgumentException('Invalid target project directory.');
+    }
+    
+    // Get composer.json 
+    $composerJson = json_decode(
+        file_get_contents($targetProjectDir . '/composer.json'),
+        true
+    );
+    
+    if ($args[OPT_VERSION_BUMP] && isset($composerJson['version'])) {
+        $versionParts = explode('.', $composerJson['version']);
+        $versionParts[count($versionParts)-1]++;
+        $composerJson['version'] = implode('.', $versionParts);
+    }
+
+    $composerJson['autoload'] = ['psr-4' => []];
+
+    if (!empty($composerJson['autoload_static'])) {
+        $composerJson['autoload'] = $composerJson['autoload_static'] + $composerJson['autoload'];
+    }
+    
+    // Validate source directory
+    $sourceDir = realpath($args[OPT_SOURCE_INSTALL]);
+    
+    if ($sourceDir === __DIR__) {
+        throw new \InvalidArgumentException(
+            'Source directory cannot be the current directory.'
+        );
+    }
+    
+    if (!$sourceDir || !is_dir($sourceDir) || !is_file($sourceDir . '/app/bootstrap.php')) {
+        throw new \InvalidArgumentException(
+            'Unable to find Magento 2 installation for source using ' . $sourceDir
+        );
+    }
+
+    // Generate Mocks
+    foreach ($composerJson['replace'] as $package => $ignore) {
+        $packageDir = $sourceDir . '/vendor/' . $package;
+
+        if (!is_dir($packageDir)) {
+            continue;
+        }
+
+        if ($output = trim((string)shell_exec('find ' . $packageDir . ' -type f -name "*Interface.php"'))) {
+            $packageComposerJson = json_decode(file_get_contents($packageDir . '/composer.json'), true);
+
+            if (!isset($packageComposerJson['autoload']['psr-4'])) {
+                throw new \RuntimeException('Unable to find psr-4 autoload for ' . $package);
+            }
+            
+            $autoloadPrefix = key($packageComposerJson['autoload']['psr-4']);
+            $autoloadPath = 'Mock/' . str_replace('\\', '/', $autoloadPrefix);
+            $composerJson['autoload']['psr-4'][$autoloadPrefix] = $autoloadPath;
+            $sourceFiles = explode("\n", trim($output));
+            
+            foreach ($sourceFiles as $sourceFile) {
+                $targetFile = $targetProjectDir . '/' . $autoloadPath . str_replace($packageDir . '/', '', $sourceFile);
+
+                if (!is_dir(dirname($targetFile))) {
+                    mkdir(dirname($targetFile), 0755, true);
+
+                    if (!is_dir(dirname($targetFile))) {
+                        throw new \RuntimeException('Unable to create directory at \'' . dirname($targetFile) . '\'.');
+                    }
+                }
+
+                copy($sourceFile, $targetFile);
+                
+                if (!is_file($targetFile)) {
+                    throw new RuntimeException(
+                        sprintf(
+                            'Cannot copy %s to %s.',
+                            $sourceFile,
+                            $targetFile
+                        )
+                    );
+                }
+            }
+        }
+    }
+
+    file_put_contents(
+        $targetProjectDir . '/composer.json',
+        json_encode($composerJson, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)
+    );
+    
+    if (!is_file($targetProjectDir . '/composer.json')) {
+        throw new \RuntimeException('Unable to create composer.json at ' . $targetDir);
+    }
+    
+    echo $targetProjectDir . '/composer.json' . PHP_EOL;
+} catch (\Exception $e) {
+    echo $e->getMessage();
+    exit(2);    
+} catch (\InvalidArgumentException $e) {
+    echo $e->getMessage();
+    exit(1);
+}
+
+function __process_args(array $args)
+{
+    $params = [];
+    foreach ($args as $arg) {
+        if (strpos($arg, '--') === 0) {
+            if (preg_match('/--([^=]+)(.*)/', $arg, $match)) {
+                $params[$match[1]] = trim(ltrim($match[2], '=')) ?: true;
+            } else {
+                $params[ltrim($arg, '-')] = true;
+            }
+        }
+    }
+    
+    return $params;
+}

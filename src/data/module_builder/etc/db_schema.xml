@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="%model_layout_prefix%" resource="default" engine="innodb" comment="%module% %model%">
+        <column xsi:type="int" name="%model_id_field%" padding="11" unsigned="false" nullable="false" identity="true" comment="%model% ID"/>
+        <column xsi:type="varchar" name="name" nullable="false" length="255" comment="Name"/>
+        <column xsi:type="varchar" name="image" nullable="false" length="255" comment="Image"/>
+        <column xsi:type="text" name="description" nullable="true" comment="Description"/>
+        <column xsi:type="smallint" name="sort_order" padding="6" unsigned="false" nullable="false" identity="false" default="1" comment="Sort Order"/>
+        <column xsi:type="smallint" name="is_active" padding="6" unsigned="false" nullable="false" identity="false" default="1" comment="Is Active"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Creation Time"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true" nullable="false"  default="CURRENT_TIMESTAMP" comment="Update Time"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="%model_id_field%"/>
+        </constraint>
+    </table>
+    <table name="%model_layout_prefix%_store" resource="default" engine="innodb" comment="%module% %model.strtolower%/store link table">  
+        <column xsi:type="int" name="%model_id_field%"   padding="11" unsigned="false" nullable="false" identity="false" comment="%model% ID"/>
+        <column xsi:type="smallint" name="store_id" padding="5"  unsigned="true"  nullable="false" identity="false" comment="Store ID"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="%model_id_field%"/>
+            <column name="store_id"/>
+        </constraint>
+        <constraint xsi:type="foreign" referenceId="%model_layout_prefix.strtoupper%_STORE_%model_id_field.strtoupper%_%model_layout_prefix.strtoupper%_%model_id_field.strtoupper%" table="%model_layout_prefix%_store" column="%model_id_field%" referenceTable="%model_layout_prefix%" referenceColumn="%model_id_field%" onDelete="CASCADE"/>
+        <constraint xsi:type="foreign" referenceId="%model_layout_prefix.strtoupper%_STORE_STORE_ID_STORE_STORE_ID" table="%model_layout_prefix%_store" column="store_id" referenceTable="store" referenceColumn="store_id" onDelete="CASCADE"/>
+    </table>
+</schema>

@@ -1,0 +1,316 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+try {
+    define('TEMPLATE_PATH', dirname(__DIR__) . '/data/module_builder/');
+    
+    if (!is_dir(TEMPLATE_PATH)) {
+        throw new \RuntimeException(
+            sprintf("TEMPLATE_PATH does not exist at '%s'.", TEMPLATE_PATH)
+        );
+    }
+
+    $args = get_processed_args(
+        [
+            'defaults' => [
+                'overwrite' => false,
+                'debug-args' => false,
+                'help' => false
+            ],
+            'required' => [
+                'target',
+                'vendor',
+                'module',
+                'model',
+            ],
+            'validate_path_fields' => [
+                'target',
+            ],
+            'callback_before_process' => function(array $args) {
+                if (strpos($args['module'], '\\') !== false) {
+                    list($vendor, $module) = explode('\\', $args['module']);
+
+                    $args['vendor'] = $vendor;
+                    $args['module'] = $module;
+                }
+                
+                if (empty($args['target']) && !empty($args['vendor']) && !empty($args['module'])) {
+                    $args['target'] = 'app/code/' . $args['vendor'] . '/' . $args['module'];
+                }
+                
+                return $args;
+            },
+            'callback_after_process' => function(array $args) {   
+                $args = array_merge(
+                    [
+                        'php_file_header' => "/**\n * @url FishPig.com\n */\ndeclare(strict_types=1);\n",
+                        'namespace' => $args['vendor'] . '\\' . $args['module'],
+                        'module_name' => $args['vendor'] . '_' . $args['module'],
+                        'admin_route' => $args['admin-route'] ?? strtolower($args['module']),
+                        'model_id_field' => $args['model-id-field-' . $args['model'] ] ?? strtolower($args['model']) . '_id',
+                        'model_layout_prefix' => strtolower($args['module']) . '_' . strtolower($args['model']),
+                    ],
+                    $args
+                );
+
+                return $args;
+            }
+        ]
+    );
+
+    if ($args['debug-args']) {
+        print_r($args);
+        exit;
+    }
+    
+    if ($args['help']) {
+        echo sprintf(
+            "%s --module=Vendor\\Module --model=SomeModel",
+            $argv[0]
+        );
+        exit(0);
+    }
+
+    if (is_dir($args['target'])) {
+        if ((int)$args['overwrite'] !== 1) {
+            throw new \RuntimeException(
+                sprintf(
+                    "Target directory (%s) exists but the --overwrite argument was not passed.",
+                    $args['target']
+                )
+            );
+        }
+
+        if (count(scandir($args['target'])) === 2) {
+            // Dir is empty
+            rmdir($args['target']);
+        } elseif (!realpath($args['target']) || strpos(realpath($args['target']), getcwd()) !== 0) {
+            throw new \RuntimeException(
+                sprintf(
+                    "Target directory (%s) exists but cannot be deleted as the path is not a child of the current directory.",
+                    $args['target']
+                )
+            );
+        } else {
+            shell_exec('rm -rf ' . realpath($args['target']));
+        }
+    }
+
+    mkdir($args['target']);
+    
+    if (!is_dir($args['target'])) {
+        throw new \RuntimeException(
+            sprintf(
+                "Unable to create target directory at '%s'.",
+                $args['target']
+            )
+        );
+    }
+    
+    if (!($targetDir = realpath($args['target']))) {
+        throw new \RuntimeException(
+            sprintf(
+                "Error validating target path '%s'.",
+                $args['target']
+            )
+        );
+    }
+
+    $files = [];
+
+    $findReplaceInPaths = [
+        '_Module_' => $args['module'],
+        '_module_' => strtolower($args['module']),
+        '_Model_' => $args['model'],
+        '_model_' => strtolower($args['model']),
+    ];
+    
+    foreach (get_template_source_files(TEMPLATE_PATH) as $sourceFile) {
+        $code = fishpig_module_creator_create_file($sourceFile, $args);
+        
+        $absoluteTargetFile = str_replace(
+            array_keys($findReplaceInPaths),
+            $findReplaceInPaths,
+            $targetDir . '/' . str_replace(TEMPLATE_PATH, '', $sourceFile)
+        );
+
+        $absoluteTargetPath = dirname($absoluteTargetFile);
+
+        if (!is_dir($absoluteTargetPath)) {
+            mkdir($absoluteTargetPath, 0755, true);
+
+            if (!is_dir($absoluteTargetPath)) {
+                throw new \RuntimeException(
+                    sprintf(
+                        "Error creating file directory '%s' at '%s'.",
+                        basename($absoluteTargetFile),
+                        $absoluteTargetPath
+                    )
+                );
+            }
+        }
+        
+        file_put_contents($absoluteTargetFile, $code);
+
+        if (!is_file($absoluteTargetFile)) {
+            throw new \RuntimeException(
+                sprintf(
+                    "Error creating file '%s'.",
+                    $absoluteTargetFile
+                )
+            );
+        }
+    }
+} catch (\Exception $e) {
+    echo PHP_EOL . PHP_EOL;
+    echo $e->getMessage() . PHP_EOL . PHP_EOL;
+    echo $e->getTraceAsString() . PHP_EOL;
+}
+
+//
+// Functions
+//
+function get_processed_args($options = []) {
+    $args = [];
+
+    foreach (array_slice($_SERVER['argv'], 1) as $arg) {
+        if (preg_match('/^--([^=]+)(=(.*))?/', $arg, $argMatch)) {   
+            $key = $argMatch[1];
+            if (isset($argMatch[3])) {
+                $value = $argMatch[3];
+            } else {
+                $value = true;
+            }
+
+            $args[$key] = $value;
+        } else {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    "Unable to progress argument '%s'",
+                    $arg
+                )
+            );
+        }
+    }
+
+    $args = array_merge($options['defaults'] ?? [], $args);
+
+    if (!empty($options['callback_before_process']) && is_callable($options['callback_before_process'])) {
+        $args = call_user_func($options['callback_before_process'], $args);
+    }
+
+    if (!empty($options['validate_path_fields'])) {
+        foreach ($options['validate_path_fields'] as $field) {
+            if (!empty($args[$field])) {
+                $firstChar = substr($args[$field], 0, 1);
+                
+                if ($firstChar === '~') {
+                    throw new \InvalidArgumentException(
+                        "Paths that start with ~ are not currently supported."
+                    );
+                } elseif ($firstChar !== '/') {
+                    $args[$field] = getcwd() . '/' . trim($args[$field]);
+                }
+            }
+        }
+    }
+    
+    // Custom filter to stop strict false values being removed
+    $args = array_filter(
+        $args,
+        function ($v) {
+            return $v !== '' && $v !== null;
+        }
+    );
+
+    // Check required arguments
+    if (!empty($options['required'])) {
+        if ($missingRequiredArgs = array_diff_key(array_flip($options['required']), $args)) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    "%d required argument(s) are missing. Missing arguments are: %s",
+                    count($missingRequiredArgs),
+                    "'" . implode("', '", array_keys($missingRequiredArgs)) . "'"
+                )
+            );   
+        }
+    }
+    
+    if (!empty($options['callback_after_process']) && is_callable($options['callback_after_process'])) {
+        $args = call_user_func($options['callback_after_process'], $args);
+    }
+
+    return $args;
+}
+
+//
+function fishpig_module_creator_create_file($sourceFile, array $args)
+{
+    if (!is_file($sourceFile)) {
+        throw new \InvalidArgumentException(
+            sprintf(
+                "Invalid template '%s' does not exist.",
+                $sourceFile
+            )
+        );
+    }
+
+    $template = (string)file_get_contents($sourceFile);
+
+    if (trim($template) === '') {
+        throw new \InvalidArgumentException(
+            sprintf(
+                "Template '%s' is empty.",
+                $sourceFile
+            )
+        );
+    }
+    
+    foreach ($args as $arg => $value) {
+        $findReplace = [
+            '%' . $arg . '%' => (string)$value,
+            '%' . $arg . '.strtolower%' => strtolower((string)$value),
+            '%' . $arg . '.strtoupper%' => strtoupper((string)$value),
+        ];
+        
+        $template = str_replace(array_keys($findReplace), $findReplace, $template);
+    }
+    
+    if (preg_match_all('/%[a-z\._]+%/', $template, $missingVariableMatches)) {
+        throw new \RuntimeException(
+            sprintf(
+                "%d variables missed in template '%s'.",
+                count($missingVariableMatches[0]),
+                "'" . implode("', '", $missingVariableMatches[0]) . "'",
+                $sourceFile
+            )
+        );
+    }
+    
+    return $template;
+}
+
+//
+function get_template_source_files($path): array
+{
+    $path = rtrim($path, '/');
+    $files = [];
+    if (is_dir($path)) {
+        foreach (array_slice(scandir($path), 2) as $item) {
+            $absolute = $path . '/' . $item;
+            if (is_dir($absolute)) {
+                $files = array_merge($files, get_template_source_files($absolute));
+            } else {
+                $files[] = $absolute;
+            }
+        }
+    }
+    
+    return $files;
+}

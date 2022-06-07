@@ -1,0 +1,143 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+
+try {
+    # Find Magento install
+    $magentoPath = dirname(dirname(dirname(dirname(dirname(__DIR__)))));
+    if (!is_dir($magentoPath) || !is_file($magentoPath . '/app/bootstrap.php')) {
+        throw new \Exception('Unable to find Magento 2 installation at ' . $magentoPath);
+    }
+    
+    # Get theme path and locale from user input
+    $themePath = btdev_get_arg('theme', null, true);
+    $locale = btdev_get_arg('locale', null, true);
+    
+    // Get and validate paths
+    $sourceFilePath = btdev_validate_path(
+        "$magentoPath/var/view_preprocessed/pub/static/frontend/$themePath/$locale",
+        $magentoPath . '/var/'
+    );
+
+    $absoluteThemePath = btdev_validate_path(
+        "$magentoPath/app/design/frontend/$themePath",
+        $magentoPath
+    );
+
+    // Get files from $absolutePreprocessedPath
+    $sourceFiles = btdev_get_files($sourceFilePath, function($file) {
+        return in_array(basename($file), ['_module.less', '_extend.less']);
+    });
+    
+    if (!$sourceFiles) {
+        echo 'No files found.';
+        exit(0);
+    }
+    
+    $filesFromSource = [];
+    
+    foreach ($sourceFiles as $sourceFile) {
+        $relativeSourceFile = str_replace($sourceFilePath . '/', '', $sourceFile);
+
+        if (strpos(substr($relativeSourceFile, 0, strpos($relativeSourceFile, '/')), '_') !== false) {
+            $absoluteThemeFile = $absoluteThemePath . '/' . str_replace('/css/', '/web/css/', $relativeSourceFile);
+            if (!is_file($absoluteThemeFile)) {
+                $filesFromSource[$relativeSourceFile] = $absoluteThemeFile;
+            }
+        }
+    }
+    
+    if (count($filesFromSource) === 0) {
+        echo "No files found.";
+        exit(0);
+    }
+    
+    if (in_array('--create', $_SERVER['argv'])) {
+        foreach ($filesFromSource as $relativeFile => $missingThemeFile) {
+            if (!is_dir(dirname($missingThemeFile))) {
+                mkdir(dirname($missingThemeFile), 0755, true);
+            }
+            
+            touch($missingThemeFile);
+            chmod($missingThemeFile, 0644);
+
+            echo 'Created ' . $relativeFile . PHP_EOL;
+        }
+    } else {
+        array_walk($filesFromSource, function ($v, $i) {
+            echo $i . PHP_EOL;
+        });
+    }
+} catch (\Exception $e) {
+    echo $e->getMessage();
+    exit(2);    
+} catch (\InvalidArgumentException $e) {
+    echo $e->getMessage();
+    exit(1);
+}
+
+/**
+ * Get an array of files passing $callback
+ *
+ * @param  string $path
+ * @param  \Closure $callback = null
+ * @return array
+ */
+function btdev_get_files(string $path, \Closure $callback = null): array {
+    $files = [];
+    if (is_dir($path)) {
+        $path = rtrim($path, '/');
+        $isCallbackCallable = is_callable($callback);
+        foreach (array_slice(scandir($path), 2) as $item) {
+            $absoluteItem = $path . '/' . $item;
+            if (is_dir($absoluteItem)) {
+                $files = array_merge($files, call_user_func(__FUNCTION__, $absoluteItem, $callback));
+            } else {
+                if (!$isCallbackCallable || $callback($path . '/' . $item)) {
+                    $files[] = $absoluteItem;
+                }
+            }
+        }
+    }
+
+    return $files;
+}
+
+/**
+ *
+ */
+function btdev_validate_path(string $path, string $base): string
+{
+    $realPath = realpath($path);
+
+    if (!$realPath || strpos($realPath, $base) !== 0) {
+        throw new \InvalidArgumentException('Unable to get validated path from ' . $path);
+    }
+    
+    return $realPath;
+}
+
+/**
+ *
+ */
+function btdev_get_arg($name, $default = null, $throw = false)
+{
+    $base = '--' . $name . '=';
+    foreach ($_SERVER['argv'] as $arg) {
+        if (strpos($arg, $base) === 0) {
+            return trim(substr($arg, strlen($base)), '"') ?? false;
+        }
+    }
+    
+    if ($throw) {
+        throw new \InvalidArgumentException('Unable to find option for ' . $name);
+    }
+    
+    return $default;
+}

@@ -1,0 +1,63 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+try {
+    if (count($_SERVER['argv']) < 2) {
+        throw new \InvalidArgumentException('No class specified.');
+    }
+    
+    $className = $_SERVER['argv'][1];
+
+    # Find Magento install
+    $magentoPath = dirname(dirname(dirname(dirname(dirname(__DIR__)))));
+    if (!is_dir($magentoPath) || !is_file($magentoPath . '/app/bootstrap.php')) {
+        throw new \Exception('Unable to find Magento 2 installation at ' . $magentoPath);
+    }
+
+    chdir($magentoPath);
+    require 'app/bootstrap.php';
+    \Magento\Framework\App\Bootstrap::create(BP, $_SERVER);
+    btdev_validate_class($className);
+} catch (\Exception $e) {
+    echo $e->getMessage();
+    exit(2);    
+} catch (\InvalidArgumentException $e) {
+    echo $e->getMessage();
+    exit(1);
+}
+
+/**
+ *
+ */
+function btdev_validate_class($className, $safety = 10)
+{
+    if (--$safety < 1) {
+        echo 'safety hit!';
+        exit;
+    }
+
+	try {
+    	echo $className . ': ';
+        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+        $object = $objectManager->get($className);
+        
+        echo get_class($object) . PHP_EOL;
+    }
+    catch (\Exception $e) {
+        echo 'Param Check' . PHP_EOL;
+
+    	$classReader = $objectManager->get('Magento\Framework\Code\Reader\ClassReader');
+
+        foreach($classReader->getConstructor($className) as $param) {
+            if ($param[1]) {
+                btdev_validate_class($param[1], $safety);
+            }
+        }
+    }
+}

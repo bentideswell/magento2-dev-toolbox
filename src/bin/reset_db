@@ -1,0 +1,77 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+use Magento\Framework\App\Bootstrap;
+
+try {
+    // Find app/etc/env.php file or throw exception
+    if (false === ($appEtcEnv = call_user_func(
+        function ($baseDirs) {
+            foreach ($baseDirs as $baseDir) {
+                if (is_file($baseDir . '/app/etc/env.php')) {
+                    return $baseDir . '/app/etc/env.php';
+                }
+            }
+            
+            return false;
+        },
+        [
+            dirname(dirname(dirname(dirname(dirname(__DIR__)))))
+        ]
+    ))) {
+        if (!in_array('--graceful', $argv)) {
+            throw new \Exception('Unable to find app/etc/env.php. Cannot reset DB');
+        }
+        
+        // Graceful option set so as DB already reset (no env.php anyway) exit happily
+        exit;
+    }
+    
+    // Only run if --force set
+    if (!in_array('--force', $argv)) {
+        throw new \Exception('Cannot reset the DB without the --force option.');
+    }
+  
+    // Load and validate conig
+    if (!($config = require $appEtcEnv) || !isset($config['db']['connection']['default'])) {
+        throw new \Exception('Cannot find default connection in ' . $appEtcEnv);
+    } else {
+        $db = $config['db']['connection']['default'];
+    }
+    
+    // Connect to DB
+    $conn = new \mysqli($db['host'], $db['username'], $db['password'], $db['dbname']);    
+    if ($conn->connect_error) {
+        throw new \Exception('DB Connection Error: ' . $conn->connect_error);
+    } 
+
+    // Get items and delete
+    foreach ([
+        'TABLE ' => 'SHOW TABLES',
+        'VIEW' => 'SHOW FULL TABLES WHERE TABLE_TYPE LIKE \'VIEW\''
+    ] as $type => $query) {
+        if ($items = array_column(
+            $conn->query($query)->fetch_all(),
+            0
+        )) {
+            $conn->query('SET foreign_key_checks = 0');
+            foreach ($items as $item) {
+                $conn->query('DROP ' . $type . ' IF EXISTS ' . $item);
+            }
+            $conn->query('SET foreign_key_checks = 1');
+        }
+    }
+
+    // All done so close the connection
+    $conn->close();
+} catch (Exception $e) {
+	echo PHP_EOL . 'Exception: ' . $e->getMessage() . PHP_EOL . PHP_EOL;
+	echo "  " . str_replace("\n", "\n  ", $e->getTraceAsString()) . PHP_EOL;
+	exit(1);
+}

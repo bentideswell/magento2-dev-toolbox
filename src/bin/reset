@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Find Magento directory
+if [ -z "${COMPOSER_BIN_DIR}" ]; then 
+    MY_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && cd ../../../../../ && pwd ) 
+    cd "${MY_DIR}"
+else
+    cd "${COMPOSER_BIN_DIR}/../.."   
+fi
+
+# Check if directory is Magento 2
+if [ ! -f "app/etc/env.php" ]; then
+    CURRENT_DIR=$(pwd)
+    echo "Cannot find Magento 2 install at ${CURRENT_DIR}"
+    exit 1
+fi
+
+# Clean dirs and files to reset install
+rm -rf var/cache var/page_cache var/log var/tmp var/view_preprocessed \
+       var/*.lock var/*.log var/.*.lock var/*.flag var/.*.flag var/report \
+       var/picklist var/bolt/cache var/autocomplete var/*.cookie
+rm -rf pub/static/frontend pub/static/adminhtml pub/static/_cache pub/static/deployed_version.txt pub/error_log
+rm -rf generated/code generated/metadata
+rm -rf error_log error.log

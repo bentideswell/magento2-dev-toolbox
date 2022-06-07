@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# Find Magento directory
+if [ ! -f "app/etc/env.php" ]; then
+    if [ -z "${COMPOSER_BIN_DIR}" ]; then 
+        MY_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && cd ../../../../../ && pwd ) 
+        cd "${MY_DIR}"
+    else
+        cd "${COMPOSER_BIN_DIR}/../.."   
+    fi
+    
+    # Check if directory is Magento 2
+    if [ ! -f "app/etc/env.php" ]; then
+        CURRENT_DIR=$(pwd)
+        echo "Cannot find Magento 2 install at ${CURRENT_DIR}"
+        exit 1
+    fi
+fi
+
+# Find and delete $1 (file) in view_preprocessed and static/frontend dirs
+function find_and_delete_file ()
+{
+    [ -d "var/view_preprocessed/pub/static/frontend" ] && find var/view_preprocessed/pub/static/frontend -type f -name "${1}" -print -delete
+    [ -d "pub/static/frontend" ] && find pub/static/frontend -type f -name "${1}" -print -delete
+}
+
+# Delete merged published CSS files and the deploy_version.txt file (so a new version is published)
+rm -rf pub/static/_cache pub/static/deployed_version.txt
+
+if [ "$#" -gt 0 ]; then
+    for i in "$@"; do
+        case $i in
+            --cache)
+                echo "pub/static/_cache"
+                rm -rf pub/static/_cache
+            ;;
+            *)
+                find_and_delete_file "${i}.css"
+                find_and_delete_file "${i}.less"
+            ;;
+        esac
+    done
+else
+    # No arguments passed so flush all CSS/LESS
+    [ -d "var/view_preprocessed/pub/static/frontend" ] && find var/view_preprocessed/pub/static/frontend -type f -name "*.*ss" -print -delete
+    [ -d "pub/static/frontend" ] && find pub/static/frontend -type f -name "*.css" -delete -print
+    [ -d "pub/static/_cache" ]   && find pub/static/_cache -type f -name "*.css" -delete -print
+fi
