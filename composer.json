@@ -1,6 +1,6 @@
 {
     "name": "fishpig/magento2-dev-toolbox",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "bin": [
         "src/bin/css_clean",
         "src/bin/class_checker",

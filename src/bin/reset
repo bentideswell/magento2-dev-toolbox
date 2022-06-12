@@ -12,7 +12,7 @@ fi
 if [ ! -f "app/etc/env.php" ]; then
     CURRENT_DIR=$(pwd)
     echo "Cannot find Magento 2 install at ${CURRENT_DIR}"
-    exit 1
+    exit
 fi
 
 # Clean dirs and files to reset install
