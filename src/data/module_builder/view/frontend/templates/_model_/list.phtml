@@ -1,0 +1,12 @@
+<?php
+%php_file_header%?>
+<?php $%model.strtolower%s = $block->get%model%Collection() ?>
+<?php if (count($%model.strtolower%s) > 0): ?>
+    <ul>
+        <?php foreach ($%model.strtolower%s as $%model.strtolower%): ?>
+            <li>
+                <a href="<?= $block->escapeUrl($%model.strtolower%->getUrl()) ?>"><?= $block->escapeHtml($%model.strtolower%->getName()) ?></a>
+            </li>
+        <?php endforeach; ?>
+    </ul>
+<?php endif; ?>

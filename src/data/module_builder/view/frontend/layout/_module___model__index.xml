@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceContainer name="content">
+            <block class="%namespace%\Block\%model%\List%model%" name="%module.strtolower%.%model.strtolower%.index"
+                   template="%module_name%::%model.strtolower%/list.phtml"/>
+        </referenceContainer>
+    </body>
+</page>

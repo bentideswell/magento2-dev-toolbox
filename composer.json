@@ -1,6 +1,6 @@
 {
     "name": "fishpig/magento2-dev-toolbox",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "bin": [
         "src/bin/css_clean",
         "src/bin/class_checker",
@@ -9,5 +9,10 @@
         "src/bin/reset_db",
         "src/bin/replace_package_builder",
         "src/bin/theme_css_source_files"
-    ]
+    ],
+    "autoload": {
+        "files": [
+            "bin/functions.php"
+        ]
+    }
 }

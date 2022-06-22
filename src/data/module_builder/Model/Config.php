@@ -10,12 +10,19 @@ class Config
     private $_scopeConfig = null;
 
     /**
+     * @var \Magento\Framework\UrlInterface
+     */
+    private $urlBuilder = null;
+
+    /**
      *
      */
     public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig
+        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        \Magento\Framework\UrlInterface $urlBuilder
     ) {
         $this->_scopeConfig = $scopeConfig;
+        $this->urlBuilder = $urlBuilder;
     }
 
     /**
@@ -28,7 +35,7 @@ class Config
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
     }
-    
+
     /**
      * @return mixed
      */
