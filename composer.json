@@ -1,6 +1,6 @@
 {
     "name": "fishpig/magento2-dev-toolbox",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "bin": [
         "src/bin/css_clean",
         "src/bin/class_checker",
@@ -12,7 +12,7 @@
     ],
     "autoload": {
         "files": [
-            "functions.php"
+            "src/functions.php"
         ]
     }
 }
