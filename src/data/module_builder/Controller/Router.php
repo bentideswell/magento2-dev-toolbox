@@ -15,7 +15,7 @@ class Router implements \Magento\Framework\App\RouterInterface
     /**
      * @var \%namespace%\Model\%model%Repository
      */
-    private %model.strtolower%Repository = null;
+    private $%model.strtolower%Repository = null;
 
     /**
      * @param \Magento\Framework\App\ActionFactory $actionFactory

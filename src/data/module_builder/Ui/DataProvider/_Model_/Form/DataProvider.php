@@ -19,7 +19,7 @@ class DataProvider extends \Magento\Ui\DataProvider\AbstractDataProvider
         \%namespace%\Model\ResourceModel\%model%\CollectionFactory $collectionFactory,
         \Magento\Ui\DataProvider\Modifier\PoolInterface $pool,
         array $meta = [],
-        array $data = [],
+        array $data = []
     ) {
         $this->pool = $pool;
         $this->collection = $collectionFactory->create();

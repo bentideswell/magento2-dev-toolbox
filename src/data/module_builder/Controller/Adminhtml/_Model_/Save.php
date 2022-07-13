@@ -16,7 +16,7 @@ class Save extends \Magento\Backend\App\Action
         \Magento\Backend\App\Action\Context $context,
         \%namespace%\Model\%model%Repository $%model.strtolower%Repository,
         \%namespace%\Model\%model%Factory $%model.strtolower%Factory,
-        \%namespace%\Model\%model%\FileProcessor $fileProcessor,
+        \%namespace%\Model\%model%\FileProcessor $fileProcessor
     ) {
         $this->%model.strtolower%Repository = $%model.strtolower%Repository;
         $this->%model.strtolower%Factory = $%model.strtolower%Factory;

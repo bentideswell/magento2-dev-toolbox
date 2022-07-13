@@ -26,7 +26,7 @@ class View extends \Magento\Framework\App\Action\Action
         \Magento\Framework\App\Action\Context $context,
         \Magento\Framework\Registry $_coreRegistry,
         \%namespace%\Model\%model%Repository $%model.strtolower%Repository,
-        \%namespace%\Model\Config $config,
+        \%namespace%\Model\Config $config
     ) {
         $this->_coreRegistry = $_coreRegistry;
         $this->%model.strtolower%Repository = $%model.strtolower%Repository;
