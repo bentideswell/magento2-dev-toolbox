@@ -13,6 +13,9 @@
         <constraint xsi:type="primary" referenceId="PRIMARY">
             <column name="%model_id_field%"/>
         </constraint>
+        <index referenceId="FTI_%model_layout_prefix.strtoupper%" indexType="fulltext">
+            <column name="name"/>
+        </index>
     </table>
     <table name="%model_layout_prefix%_store" resource="default" engine="innodb" comment="%module% %model.strtolower%/store link table">  
         <column xsi:type="int" name="%model_id_field%"   padding="11" unsigned="false" nullable="false" identity="false" comment="%model% ID"/>
