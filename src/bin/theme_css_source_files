@@ -52,7 +52,20 @@ try {
             }
         }
     }
-    
+
+    if (!in_array('--include-fishpig', $_SERVER['argv'])) {
+        $filesFromSource = array_filter(
+            $filesFromSource,
+            function ($file) {
+                if (preg_match('/\/(FishPig|Surfanic|Dcw)_/', $file, $m)) {
+                    return false;
+                }
+                
+                return true;
+            }
+        );
+    }
+
     if (count($filesFromSource) === 0) {
         echo "No files found.";
         exit(0);
@@ -63,15 +76,17 @@ try {
             if (!is_dir(dirname($missingThemeFile))) {
                 mkdir(dirname($missingThemeFile), 0755, true);
             }
-            
+
             touch($missingThemeFile);
             chmod($missingThemeFile, 0644);
 
-            echo 'Created ' . $relativeFile . PHP_EOL;
+            echo 'Created ' . $missingThemeFile . PHP_EOL;
         }
     } else {
-        array_walk($filesFromSource, function ($v, $i) {
-            echo $i . PHP_EOL;
+        array_walk($filesFromSource, function ($v, $i) use ($absoluteThemePath) {
+            if (!is_file($absoluteThemePath . '/' . $i)) {
+                echo $i . PHP_EOL;
+            }
         });
     }
 } catch (\Exception $e) {
