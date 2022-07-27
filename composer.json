@@ -1,9 +1,9 @@
 {
     "name": "fishpig/magento2-dev-toolbox",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "bin": [
         "src/bin/css_clean",
-        "src/bin/class_checker",
+        "src/bin/fishpig-dev",
         "src/bin/module_builder",
         "src/bin/reset",
         "src/bin/reset_db",

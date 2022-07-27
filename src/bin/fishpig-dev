@@ -1,0 +1,201 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+namespace FishPig\DevToolbox;
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+define('OPT_SOURCE_INSTALL', 'source');
+define('OPT_TARGET_PROJECT', 'project');
+define('OPT_VERSION_BUMP', 'bump');
+
+try {
+    # Find Magento install
+    $magentoPath = dirname(dirname(dirname(dirname(dirname(__DIR__)))));
+    if (!is_dir($magentoPath) || !is_file($magentoPath . '/app/bootstrap.php')) {
+        throw new \Exception('Unable to find Magento 2 installation at ' . $magentoPath);
+    }
+
+    chdir($magentoPath);
+    require 'app/bootstrap.php';
+    \Magento\Framework\App\Bootstrap::create(BP, $_SERVER);
+
+    $args = array_merge(['action' => ''], __process_args($_SERVER['argv']));
+
+    // If arg not set, try looking for shortcut
+    if (empty($args['action'])) {
+        // class.validate
+        if (!empty($args['validate'])) {
+            $args['action'] = 'class.validate';
+            $args['class'] = $args['validate'];
+        }
+        
+        if (empty($args['action'])) {
+            throw new \InvalidArgumentException('No action set.');
+        }
+    }
+    
+    $actionFunc = '\FishPig\DevToolbox\\' . str_replace('.', '_', $args['action']);
+    
+    if (!is_callable($actionFunc)) {
+        throw new \InvalidArgumentException($actionFunc . ' is not a callable function');
+    }
+    
+    $actionFunc($args);
+} catch (\Exception $e) {
+    echo $e->getMessage();
+    exit(1);
+}
+
+//
+function __process_args(array $args)
+{
+    $params = [];
+    foreach ($args as $arg) {
+        if (strpos($arg, '--') === 0) {
+            if (preg_match('/--([^=]+)(.*)/', $arg, $match)) {
+                $params[$match[1]] = trim(ltrim($match[2], '=')) ?: true;
+            } else {
+                $params[ltrim($arg, '-')] = true;
+            }
+        }
+    }
+    
+    return $params;
+}
+
+//
+function sales_order_reset(array $args)
+{
+    $orderIds = !empty($args['order-id']) ? explode(',', $args['order-id']) : [];
+        
+    if (!($orderIds = array_filter(array_unique($orderIds)))) {
+        return;
+    }
+    
+    $orderRepository = _om()->get(\Magento\Sales\Model\OrderRepository::class);
+    $resource = _resource();
+    $db = _db();
+    $fieldKeywords = ['invoiced', 'canceled', 'refunded', 'shipped'];
+    $updateDataArray = function($data, $keywords) {
+        $keywordLookupPattern = '/(' . implode('|', $keywords) . ')/';
+        $updates = [];
+        foreach ($data as $k => $v) {
+            if (!is_object($v) && !is_array($v) && preg_match($keywordLookupPattern, $k)) {
+                $updates[$k] = null;
+            }
+        }
+        
+        return $updates;
+    }; 
+    
+    foreach ($orderIds as $orderId) {
+        $order = $orderRepository->get($orderId);
+        $cond = 'order_id=' . (int)$order->getId();   
+        
+        echo '#' . $order->getIncrementId() . ' (' . (int)$order->getId() . ')' . PHP_EOL;
+
+        foreach (['invoice', 'creditmemo', 'shipment'] as $orderEntity) {
+            $db->delete($resource->getTableName('sales_' . $orderEntity), $cond);
+            $db->delete($resource->getTableName('sales_' . $orderEntity . '_grid'), $cond);
+        }
+
+        $db->delete($resource->getTableName('sales_order_status_history'), 'entity_name <> \'order\' AND parent_id=' . (int)$order->getId());
+    
+        // Update sales_order
+        $db->update(
+            $order->getResource()->getMainTable(),
+            array_merge([  
+                    'state' => 'new',
+                    'status' => 'pending',
+                    'base_total_due' => $order->getData('base_grand_total'),
+                    'total_due' => $order->getData('grand_total'),
+                    'total_paid' => 0.00
+                ],
+                $updateDataArray($order->getData(), $fieldKeywords)
+            ),
+            'entity_id=' . (int)$order->getId()
+        );
+        
+        // Update sales_order_grid
+        $db->update(
+            $resource->getTableName('sales_order_grid'),
+            [
+                'status' => 'pending',
+                'base_total_paid' => 0.00,
+                'total_paid' => 0.00,
+                'total_refunded' => 0.00
+            ],
+            'entity_id=' . (int)$order->getId()
+        );
+        
+        // sales_order_item
+        $itemData = $db->fetchAll($db->select()->from($resource->getTableName('sales_order_item'), '*')->where($cond));
+        foreach ($itemData as $item) {
+            if ($updates = $updateDataArray($item, $fieldKeywords)) {
+                $db->update(
+                    $resource->getTableName('sales_order_item'),
+                    $updates,
+                    $cond
+                );
+            }
+        }
+    }
+}
+
+//
+function class_validate(array $args)
+{
+    if (empty($args['class'])) {
+        throw new \InvalidArgumentException('--class is not set.');
+    }
+    
+    $validateClass = function($className, $safety = 10) use (&$validateClass) {
+        if (--$safety < 1) {
+            throw new \RuntimeException(
+                'The safey limit was hit trying to find ' . $className
+            );
+        }
+    
+	    try {
+            $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+            $object = $objectManager->get($className);
+            
+            echo 'ok';
+            //echo $className . ': ' . get_class($object) . PHP_EOL;
+        } catch (\ReflectionException $e) {
+            echo 'Error: ' . $e->getMessage();
+        } catch (\Exception $e) {
+            echo $className . ': ';
+            echo 'Param Check' . PHP_EOL;
+    
+    	    $classReader = $objectManager->get('Magento\Framework\Code\Reader\ClassReader');
+    
+            foreach($classReader->getConstructor($className) as $param) {
+                if ($param[1]) {
+                    $validateClass($param[1], $safety);
+                }
+            }
+        }
+    };
+    
+    $validateClass($args['class']);
+}
+
+//
+function _om() {
+    return \Magento\Framework\App\ObjectManager::getInstance();
+}
+
+function _resource() {
+    return _om()->get(\Magento\Framework\App\ResourceConnection::class);
+}
+
+function _db($c = '') {
+    return _resource()->getConnection($c);
+}
+

@@ -47,3 +47,17 @@ function debug_backtrace() {
         echo ');<br/><br/>';
     }
 }
+
+
+function print_r($a, bool $return = false, $depth = 0)
+{
+    if (is_array($a)) {
+        foreach ($a as $k => $v) {
+            $a[$k] = print_r($v, $return, $depth+1);
+        }
+    } elseif (is_object($a)) {
+        $a = get_class($a);
+    }
+    
+    return $depth > 0 ? $a :\print_r($a, $return);
+}
