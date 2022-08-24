@@ -1,17 +1,24 @@
 #!/bin/bash
 
-# Find Magento directory
-if [ -z "${COMPOSER_BIN_DIR}" ]; then 
-    MY_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && cd ../../../../../ && pwd ) 
-    cd "${MY_DIR}"
-else
-    cd "${COMPOSER_BIN_DIR}/../.."   
+# Get script path to try to find Magento
+SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
+# Try a few different locations
+if [ -f "${SCRIPTPATH}/../app/etc/config.php" ]; then
+    cd "${SCRIPTPATH}/.."
+elif [ -f "${SCRIPTPATH}/../../app/etc/config.php" ]; then
+    cd "${SCRIPTPATH}/../.."
+elif [ -f "${SCRIPTPATH}/../../../app/etc/config.php" ]; then
+    cd "${SCRIPTPATH}/../../.."
+elif [ -f "${SCRIPTPATH}/../../../../app/etc/config.php" ]; then
+    cd "${SCRIPTPATH}/../../../.."
+elif [ -f "${SCRIPTPATH}/../../../../../app/etc/config.php" ]; then
+    cd "${SCRIPTPATH}/../../../../.."
 fi
 
-# Check if directory is Magento 2
+# One more check for the right location
 if [ ! -f "app/etc/env.php" ]; then
-    CURRENT_DIR=$(pwd)
-    echo "Cannot find Magento 2 install at ${CURRENT_DIR}"
+    echo "Cannot find Magento 2 install at $(pwd)"
     exit
 fi
 
