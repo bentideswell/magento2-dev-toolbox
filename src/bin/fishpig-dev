@@ -32,19 +32,22 @@ try {
         if (!empty($args['validate'])) {
             $args['action'] = 'class.validate';
             $args['class'] = $args['validate'];
+        } elseif (!empty($args['compare'])) {
+            $args['action'] = 'compare.product.data';
+            $args['ids'] = explode(',', $args['compare']);
         }
-        
+
         if (empty($args['action'])) {
             throw new \InvalidArgumentException('No action set.');
         }
     }
-    
+
     $actionFunc = '\FishPig\DevToolbox\\' . str_replace('.', '_', $args['action']);
-    
+
     if (!is_callable($actionFunc)) {
         throw new \InvalidArgumentException($actionFunc . ' is not a callable function');
     }
-    
+
     $actionFunc($args);
 } catch (\Exception $e) {
     echo $e->getMessage();
@@ -64,7 +67,7 @@ function __process_args(array $args)
             }
         }
     }
-    
+
     return $params;
 }
 
@@ -72,11 +75,11 @@ function __process_args(array $args)
 function sales_order_reset(array $args)
 {
     $orderIds = !empty($args['order-id']) ? explode(',', $args['order-id']) : [];
-        
+
     if (!($orderIds = array_filter(array_unique($orderIds)))) {
         return;
     }
-    
+
     $orderRepository = _om()->get(\Magento\Sales\Model\OrderRepository::class);
     $resource = _resource();
     $db = _db();
@@ -89,14 +92,14 @@ function sales_order_reset(array $args)
                 $updates[$k] = null;
             }
         }
-        
+
         return $updates;
-    }; 
-    
+    };
+
     foreach ($orderIds as $orderId) {
         $order = $orderRepository->get($orderId);
-        $cond = 'order_id=' . (int)$order->getId();   
-        
+        $cond = 'order_id=' . (int)$order->getId();
+
         echo '#' . $order->getIncrementId() . ' (' . (int)$order->getId() . ')' . PHP_EOL;
 
         foreach (['invoice', 'creditmemo', 'shipment'] as $orderEntity) {
@@ -105,11 +108,11 @@ function sales_order_reset(array $args)
         }
 
         $db->delete($resource->getTableName('sales_order_status_history'), 'entity_name <> \'order\' AND parent_id=' . (int)$order->getId());
-    
+
         // Update sales_order
         $db->update(
             $order->getResource()->getMainTable(),
-            array_merge([  
+            array_merge([
                     'state' => 'new',
                     'status' => 'pending',
                     'base_total_due' => $order->getData('base_grand_total'),
@@ -120,7 +123,7 @@ function sales_order_reset(array $args)
             ),
             'entity_id=' . (int)$order->getId()
         );
-        
+
         // Update sales_order_grid
         $db->update(
             $resource->getTableName('sales_order_grid'),
@@ -132,7 +135,7 @@ function sales_order_reset(array $args)
             ],
             'entity_id=' . (int)$order->getId()
         );
-        
+
         // sales_order_item
         $itemData = $db->fetchAll($db->select()->from($resource->getTableName('sales_order_item'), '*')->where($cond));
         foreach ($itemData as $item) {
@@ -148,23 +151,211 @@ function sales_order_reset(array $args)
 }
 
 //
+function compare_product_data(array $args)
+{
+    if (empty($args['ids']) || count($args['ids']) !== 2) {
+        throw new \InvalidArgumentException('--ids must contain 2 CSV IDS (eg. --ids=1,2)');
+    }
+
+    $ids = array_values(array_unique(array_filter(array_map(
+        function ($id) {
+            return (int)$id ?: null;
+        },
+        $args['ids']
+    ))));
+
+    if (count($ids) !== 2) {
+        throw new \InvalidArgumentException('--ids must contain 2 valid IDs');
+    }
+
+    $storeIds = array_unique([
+        0,
+        isset($args['store']) ? (int)$args['store'] : 0
+    ]);
+
+    $ignoreAttributeCodes = array_filter(explode(
+        ',',
+        $args['ignore-attributes'] ?? ''
+    ));
+
+    $ignoreDataTables = array_filter(explode(
+        ',',
+        $args['ignore-data-tables'] ?? ''
+    ));
+
+    $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+    $productRepository = $objectManager->get(\Magento\Catalog\Model\ProductRepository::class);
+    $products = [
+        $productRepository->getById($ids[0]),
+        $productRepository->getById($ids[1]),
+    ];
+
+    $db = _db();
+
+    // Helper functions
+    $prepareSelect = function($select, $primaryKeyField = 'entity_id') use ($ids) {
+        return $select->where($primaryKeyField . ' IN (?)', $ids)
+            ->order('FIELD(' . $primaryKeyField . ',' . implode(',', $ids) . ')');
+    };
+
+    $prepareResults = function (
+        array $results,
+        $primaryKeyField = 'entity_id',
+        array $fieldsToRemove = []
+    ) use ($ids) {
+        // Setup correct indexes
+        $buffer = [];
+        foreach ($results as $result) {
+            if ((int)$result[$primaryKeyField] === $ids[0]) {
+                $buffer[0] = $result;
+            } elseif ((int)$result[$primaryKeyField] === $ids[1]) {
+                $buffer[1] = $result;
+            }
+        }
+
+        foreach ($buffer as $index => $row) {
+            foreach ($fieldsToRemove as $field) {
+                unset($buffer[$index][$field]);
+            }
+            unset($buffer[$index][$primaryKeyField]);
+        }
+
+        return $buffer;
+    };
+
+    $compareArrays = function($results, $type) {
+        $type = str_pad($type . ':', 18);
+        if (!isset($results[0]) || !isset($results[1])) {
+            foreach ([0, 1] as $index) {
+                if (!isset($results[$index])) {
+                    echo $type . ' ** index=' . $index . ' missing' . PHP_EOL;
+                }
+            }
+            return false;
+        } elseif (array_diff_assoc($results[0], $results[1])) {
+            if (count($results[0]) === 1 && count($results[1]) === 1) {
+                echo sprintf(
+                    '%s %s / %s',
+                    $type,
+                    array_pop($results[0]),
+                    array_pop($results[1])
+                );
+            } else {
+                echo $type . "\n" . print_r($results, true);
+            }
+
+            echo "\n";
+            return false;
+        }
+        return true;
+    };
+
+    // Check main entity table
+    $results = $compareArrays(
+        $prepareResults(
+            $db->fetchAll(
+                $prepareSelect(
+                    $db->select()->from(
+                        _table('catalog_product_entity'),
+                        [
+                            'entity_id',
+                            'attribute_set_id',
+                            'type_id',
+                            'has_options',
+                            'required_options'
+                        ]
+                    )
+                )
+            )
+        ),
+        'Differences in catalog_product_entity'
+    );
+
+    // Now check the entity data type tables
+    $dataTables = array_diff(
+        ['int', 'varchar', 'decimal'],
+        $ignoreDataTables
+    );
+
+    foreach ($dataTables as $table) {
+        $attributes = $db->fetchPairs(
+            $db->select()->distinct()->from(
+                ['value' => _table('catalog_product_entity_' . $table)],
+                'attribute_id'
+            )->where('value.entity_id IN (?)', $ids)
+            ->join(
+                ['attribute' => _table('eav_attribute')],
+                'attribute.attribute_id = value.attribute_id',
+                'attribute_code'
+            )->where(
+                'attribute.attribute_code NOT IN (?)',
+                $ignoreAttributeCodes ?: ['sdfsdfsdf']
+            )
+        );
+
+        foreach ($attributes as $attributeId => $attributeCode) {
+            foreach ($storeIds as $storeId) {
+                $compareArrays(
+                    $prepareResults(
+                        $db->fetchAll(
+                            $prepareSelect(
+                                $db->select()->from(
+                                    _table('catalog_product_entity_' . $table),
+                                    ['entity_id', 'value']
+                                )->where('attribute_id=?', $attributeId)
+                                ->where('store_id=?', $storeId)
+                            )
+                        )
+                    ),
+                    $attributeCode . ($storeId > 0 ? ' - Store #' . $storeId : '')
+                );
+            }
+        }
+    }
+
+    $stockTables = array_diff(
+        ['item', 'status', 'status_replica'],
+        []
+    );
+
+    foreach ($stockTables as $table) {
+        $compareArrays(
+            $prepareResults(
+                $db->fetchAll(
+                    $prepareSelect(
+                        $db->select()->from(
+                            _table('cataloginventory_stock_' . $table),
+                            '*'
+                        ),
+                        'product_id'
+                    )
+                ),
+                'product_id',
+                ['item_id']
+            ),
+            'Stock Table ' . $table
+        );
+    }
+}
+
+//
 function class_validate(array $args)
 {
     if (empty($args['class'])) {
         throw new \InvalidArgumentException('--class is not set.');
     }
-    
+
     $validateClass = function($className, $safety = 10) use (&$validateClass) {
         if (--$safety < 1) {
             throw new \RuntimeException(
                 'The safey limit was hit trying to find ' . $className
             );
         }
-    
+
 	    try {
             $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
             $object = $objectManager->get($className);
-            
+
             echo 'ok';
             //echo $className . ': ' . get_class($object) . PHP_EOL;
         } catch (\ReflectionException $e) {
@@ -172,9 +363,9 @@ function class_validate(array $args)
         } catch (\Exception $e) {
             echo $className . ': ';
             echo 'Param Check' . PHP_EOL;
-    
+
     	    $classReader = $objectManager->get('Magento\Framework\Code\Reader\ClassReader');
-    
+
             foreach($classReader->getConstructor($className) as $param) {
                 if ($param[1]) {
                     $validateClass($param[1], $safety);
@@ -182,7 +373,7 @@ function class_validate(array $args)
             }
         }
     };
-    
+
     $validateClass($args['class']);
 }
 
@@ -196,20 +387,20 @@ function module_create(array $args)
             sprintf("TEMPLATE_PATH does not exist at '%s'.", TEMPLATE_PATH)
         );
     }
-    
+
     // Functions
     $get_processed_args = function($options = []) {
         $args = [];
-    
+
         foreach (array_slice($_SERVER['argv'], 1) as $arg) {
-            if (preg_match('/^--([^=]+)(=(.*))?/', $arg, $argMatch)) {   
+            if (preg_match('/^--([^=]+)(=(.*))?/', $arg, $argMatch)) {
                 $key = $argMatch[1];
                 if (isset($argMatch[3])) {
                     $value = $argMatch[3];
                 } else {
                     $value = true;
                 }
-    
+
                 $args[$key] = $value;
             } else {
                 throw new \InvalidArgumentException(
@@ -220,18 +411,18 @@ function module_create(array $args)
                 );
             }
         }
-    
+
         $args = array_merge($options['defaults'] ?? [], $args);
-    
+
         if (!empty($options['callback_before_process']) && is_callable($options['callback_before_process'])) {
             $args = call_user_func($options['callback_before_process'], $args);
         }
-    
+
         if (!empty($options['validate_path_fields'])) {
             foreach ($options['validate_path_fields'] as $field) {
                 if (!empty($args[$field])) {
                     $firstChar = substr($args[$field], 0, 1);
-                    
+
                     if ($firstChar === '~') {
                         throw new \InvalidArgumentException(
                             "Paths that start with ~ are not currently supported."
@@ -242,7 +433,7 @@ function module_create(array $args)
                 }
             }
         }
-        
+
         // Custom filter to stop strict false values being removed
         $args = array_filter(
             $args,
@@ -250,7 +441,7 @@ function module_create(array $args)
                 return $v !== '' && $v !== null;
             }
         );
-    
+
         // Check required arguments
         if (!empty($options['required'])) {
             if ($missingRequiredArgs = array_diff_key(array_flip($options['required']), $args)) {
@@ -260,14 +451,14 @@ function module_create(array $args)
                         count($missingRequiredArgs),
                         "'" . implode("', '", array_keys($missingRequiredArgs)) . "'"
                     )
-                );   
+                );
             }
         }
-        
+
         if (!empty($options['callback_after_process']) && is_callable($options['callback_after_process'])) {
             $args = call_user_func($options['callback_after_process'], $args);
         }
-    
+
         return $args;
     };
 
@@ -281,9 +472,9 @@ function module_create(array $args)
                 )
             );
         }
-    
+
         $template = (string)file_get_contents($sourceFile);
-    
+
         if (trim($template) === '') {
             throw new \InvalidArgumentException(
                 sprintf(
@@ -292,17 +483,17 @@ function module_create(array $args)
                 )
             );
         }
-        
+
         foreach ($args as $arg => $value) {
             $findReplace = [
                 '%' . $arg . '%' => (string)$value,
                 '%' . $arg . '.strtolower%' => strtolower((string)$value),
                 '%' . $arg . '.strtoupper%' => strtoupper((string)$value),
             ];
-            
+
             $template = str_replace(array_keys($findReplace), $findReplace, $template);
         }
-        
+
         if (preg_match_all('/%[a-z\._]+%/', $template, $missingVariableMatches)) {
             throw new \RuntimeException(
                 sprintf(
@@ -313,7 +504,7 @@ function module_create(array $args)
                 )
             );
         }
-        
+
         return $template;
     };
 
@@ -331,7 +522,7 @@ function module_create(array $args)
                 }
             }
         }
-        
+
         return $files;
     };
 
@@ -358,14 +549,14 @@ function module_create(array $args)
                     $args['vendor'] = $vendor;
                     $args['module'] = $module;
                 }
-                
+
                 if (empty($args['target']) && !empty($args['vendor']) && !empty($args['module'])) {
                     $args['target'] = 'app/code/' . $args['vendor'] . '/' . $args['module'];
                 }
-                
+
                 return $args;
             },
-            'callback_after_process' => function(array $args) {   
+            'callback_after_process' => function(array $args) {
                 $args = array_merge(
                     [
                         'php_file_header' => "/**\n * @url FishPig.com\n */\ndeclare(strict_types=1);\n",
@@ -387,7 +578,7 @@ function module_create(array $args)
         print_r($args);
         exit;
     }
-    
+
     if ($args['help']) {
         echo sprintf(
             "%s --module=Vendor\\Module --model=SomeModel",
@@ -422,7 +613,7 @@ function module_create(array $args)
     }
 
     mkdir($args['target']);
-    
+
     if (!is_dir($args['target'])) {
         throw new \RuntimeException(
             sprintf(
@@ -431,7 +622,7 @@ function module_create(array $args)
             )
         );
     }
-    
+
     if (!($targetDir = realpath($args['target']))) {
         throw new \RuntimeException(
             sprintf(
@@ -449,10 +640,10 @@ function module_create(array $args)
         '_Model_' => $args['model'],
         '_model_' => strtolower($args['model']),
     ];
-    
+
     foreach ($get_template_source_files(TEMPLATE_PATH) as $sourceFile) {
         $code = $fishpig_module_creator_create_file($sourceFile, $args);
-        
+
         $absoluteTargetFile = str_replace(
             array_keys($findReplaceInPaths),
             $findReplaceInPaths,
@@ -474,7 +665,7 @@ function module_create(array $args)
                 );
             }
         }
-        
+
         file_put_contents($absoluteTargetFile, $code);
 
         if (!is_file($absoluteTargetFile)) {
@@ -501,3 +692,6 @@ function _db($c = '') {
     return _resource()->getConnection($c);
 }
 
+function _table($table) {
+    return _resource()->getTableName($table);
+}
