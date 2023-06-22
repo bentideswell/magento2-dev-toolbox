@@ -232,7 +232,7 @@ function compare_product_data(array $args)
                 }
             }
             return false;
-        } elseif (array_diff_assoc($results[0], $results[1])) {
+        } elseif ($diff = array_diff_assoc($results[0], $results[1])) {
             if (count($results[0]) === 1 && count($results[1]) === 1) {
                 echo sprintf(
                     '%s %s / %s',
@@ -241,7 +241,8 @@ function compare_product_data(array $args)
                     array_pop($results[1])
                 );
             } else {
-                echo $type . "\n" . print_r($results, true);
+                echo $type . "\n" . print_r($results, true) . "\n";
+                echo "Diff: " . print_r($diff, true) . "\n";
             }
 
             echo "\n";
@@ -331,7 +332,10 @@ function compare_product_data(array $args)
                     )
                 ),
                 'product_id',
-                ['item_id']
+                [
+                    'item_id',
+                    'low_stock_date'
+                ]
             ),
             'Stock Table ' . $table
         );
