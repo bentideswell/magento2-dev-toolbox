@@ -225,7 +225,10 @@ function compare_product_data(array $args)
 
     $compareArrays = function($results, $type) {
         $type = str_pad($type . ':', 18);
-        if (!isset($results[0]) || !isset($results[1])) {
+        if (!isset($results[0]) && !isset($results[1])) {
+            // Both have no data, so technically the same
+            return true;
+        } elseif (!isset($results[0]) || !isset($results[1])) {
             foreach ([0, 1] as $index) {
                 if (!isset($results[$index])) {
                     echo $type . ' ** index=' . $index . ' missing' . PHP_EOL;
