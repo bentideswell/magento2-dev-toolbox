@@ -183,6 +183,11 @@ function compare_product_data(array $args)
         $args['ignore-data-tables'] ?? ''
     ));
 
+    $ignoreIndexes = array_filter(explode(
+        ',',
+        $args['ignore-indexes'] ?? ''
+    ));
+
     $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
     $productRepository = $objectManager->get(\Magento\Catalog\Model\ProductRepository::class);
     $products = [
@@ -191,6 +196,23 @@ function compare_product_data(array $args)
     ];
 
     $db = _db();
+
+    $customerGroupIds = array_filter(
+        array_column(
+            $objectManager->get(\Magento\Customer\Model\ResourceModel\Group\CollectionFactory::class)->create()->toOptionArray(),
+            'value'
+        )
+    );
+    $websiteIds = array_keys(
+        $objectManager->get(\Magento\Store\Model\StoreManagerInterface::class)->getWebsites(true)
+    );
+    $taxClassIds = array_column(
+        $objectManager->get(
+            \Magento\Tax\Model\ResourceModel\TaxClass\CollectionFactory::class
+        )->create()->toOptionArray(),
+        'value'
+    );
+
 
     // Helper functions
     $prepareSelect = function($select, $primaryKeyField = 'entity_id') use ($ids) {
@@ -223,18 +245,24 @@ function compare_product_data(array $args)
         return $buffer;
     };
 
+
     $compareArrays = function($results, $type) {
-        $type = str_pad($type . ':', 18);
+        $type = str_pad($type, 32);
         if (!isset($results[0]) && !isset($results[1])) {
             // Both have no data, so technically the same
             return true;
         } elseif (!isset($results[0]) || !isset($results[1])) {
+            $hasOutput = false;
             foreach ([0, 1] as $index) {
                 if (!isset($results[$index])) {
                     echo $type . ' ** index=' . $index . ' missing' . PHP_EOL;
+                    $hasOutput = true;
                 }
             }
-            return false;
+
+            if ($hasOutput) {
+                echo str_repeat('-', 64) . "\n";
+            }
         } elseif ($diff = array_diff_assoc($results[0], $results[1])) {
             if (count($results[0]) === 1 && count($results[1]) === 1) {
                 echo sprintf(
@@ -242,15 +270,32 @@ function compare_product_data(array $args)
                     $type,
                     array_pop($results[0]),
                     array_pop($results[1])
-                );
+                ) . "\n";
             } else {
-                echo $type . "\n" . print_r($results, true) . "\n";
-                echo "Diff: " . print_r($diff, true) . "\n";
+                foreach ($results as $index => $result) {
+                    foreach ($result as $column => $value) {
+                        if (!isset($diff[$column])) {
+                            unset($results[$index][$column]);
+                        }
+                    }
+                }
+
+                echo $type . " DIFF\n\n";
+
+                foreach ([0, 1] as $index) {
+                    echo 'Index ' . $index . "\n";
+                    foreach ($results[$index] as $column => $value) {
+                        echo '- ' . str_pad($column, 18) . ' ' . $value . PHP_EOL;
+                    }
+                    echo "\n";
+                }
             }
 
-            echo "\n";
+            echo str_repeat('-', 64) . "\n";
+
             return false;
         }
+
         return true;
     };
 
@@ -342,6 +387,78 @@ function compare_product_data(array $args)
             ),
             'Stock Table ' . $table
         );
+    }
+
+    // Indexes
+    $indexes = [];
+
+    if (!in_array('price', $ignoreIndexes)) {
+        $indexes['price'] = 'catalog_product_index_price';
+        $indexes['price_replica'] = 'catalog_product_index_price_replica';
+    }
+
+    foreach ($indexes as $indexType => $table) {
+        foreach ($customerGroupIds as $customerGroupId) {
+            foreach ($websiteIds as $websiteId) {
+                foreach ($taxClassIds as $taxClassId) {
+                    $compareArrays(
+                        $prepareResults(
+                            $db->fetchAll(
+                                $prepareSelect(
+                                    $db->select()->from(
+                                        _table($table),
+                                        '*'
+                                    )->where(
+                                        'customer_group_id=?',
+                                        $customerGroupId
+                                    )->where(
+                                        'website_id=?',
+                                        $websiteId
+                                    )->where(
+                                        'tax_class_id=?',
+                                        $taxClassId
+                                    )->limit(2)
+                                )
+                            )
+                        ),
+                        implode(
+                            ' / ',
+                            [
+                                $indexType,
+                                'GRP' . str_pad($customerGroupId, 2),
+                                'WEB' . $websiteId,
+                                'TX' . $taxClassId
+                            ]
+                        )
+                    );
+                }
+            }
+        }
+
+
+    }
+
+    if (!isset($args['ignore-website'])) {
+        foreach ($websiteIds as $websiteId) {
+            $compareArrays(
+                $prepareResults(
+                    $db->fetchAll(
+                        $prepareSelect(
+                            $db->select()->from(
+                                _table('catalog_product_website'),
+                                '*'
+                            )->where(
+                                'website_id=?',
+                                $websiteId
+                            )->limit(2),
+                            'product_id'
+                        )
+                    ),
+                    'product_id'
+                ),
+                'Website ' . $websiteId
+            );
+        }
     }
 }
 
