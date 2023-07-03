@@ -150,6 +150,89 @@ function sales_order_reset(array $args)
     }
 }
 
+
+//
+function clean_scoped_data(array $args)
+{
+    $flush = isset($args['flush']);
+    $clean = isset($args['clean']);
+    $debug = isset($args['debug']);
+
+    if (!$flush && !$clean) {
+        throw new \InvalidArgumentException(
+            'You must specify either --flush or --clean'
+        );
+    } elseif ($flush && $clean) {
+        throw new \InvalidArgumentException(
+            'You cannot specify both --flush and --clean'
+        );
+    }
+
+    $db = _db();
+
+    foreach (['varchar', 'decimal', 'int', 'datetime'] as $tableType) {
+        $table = _table('catalog_product_entity_' . $tableType);
+
+        $scopedData = $db->fetchAll(
+            $db->select()->from(
+                    ['e' => $table],
+                    [
+                        'entity_id',
+                        'attribute_id',
+                        'e_value_id' => 'value_id',
+                        'e_value' => 'value'
+                    ]
+                )->where(
+                    'e.store_id=?',
+                    0
+                )->join(
+                    ['scoped' => $table],
+                    implode(
+                        ' AND ',
+                        [
+                            'e.entity_id = scoped.entity_id',
+                            'e.attribute_id = scoped.attribute_id',
+                            'scoped.store_id <> 0',
+                            'e.value <> scoped.value'
+                        ]
+                    ),
+                    [
+                        'scoped_value_id' => 'value_id',
+                        'scoped_value' => 'value',
+                        'scoped_store_id' => 'store_id'
+                    ]
+                )
+        );
+
+        $idsToPreserve = [];
+
+        if ($scopedData && $clean) {
+            // We are cleaning and these values are scoped and unique so
+            // we should not delete these.
+            $idsToPreserve = array_column($scopedData, 'scoped_value_id');
+        }
+
+        $db->delete(
+            $table,
+            implode(
+                ' AND ',
+                array_filter([
+                    'store_id <> 0',
+                    $idsToPreserve ? $db->quoteInto(
+                        'value_id NOT IN (?)',
+                        $idsToPreserve
+                    ) : null
+                ])
+            )
+        );
+
+        if ($scopedData && $clean && $debug) {
+            echo $table . PHP_EOL;
+            print_r($scopedData);
+        }
+    }
+}
+
 //
 function compare_product_data(array $args)
 {
